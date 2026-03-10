@@ -1,4 +1,4 @@
-# PopGenBounds 
+# PopGenBounds <img src="man/figures/logo_v1.png" align="right" width="130" style="margin-left:50px;"/>
 
 <!-- badges: start -->
 
