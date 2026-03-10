@@ -29,5 +29,6 @@ freqs_locus1 <- matrix(c(1,0.5,0,0.5),nrow=2)
 freqs_locus2 <- matrix(c(1,0.8,0,0.2),nrow=2)
 freqs_locus3 <- matrix(c(1,0.2,0,0.8),nrow=2)
 data  <- rbind(Diff(freqs_locus1),Diff(freqs_locus2),Diff(freqs_locus2))
-ggbounds(M=data \%>\% filter(statistic=="M") \%>\% pull(value),FST=data \%>\% filter(statistic=="FST") \%>\% pull(value))
+ggbounds(M=data \%>\% filter(statistic=="M") \%>\% pull(value),FST=data \%>\%
+filter(statistic=="FST") \%>\% pull(value))
 }

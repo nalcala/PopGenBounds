@@ -15,14 +15,17 @@ Imports:
     dplyr,
     ggplot2,
     ggpointdensity,
+    rlang,
     tidyverse,
+    tibble,
+    tidyr,
     magrittr
 Suggests:
     knitr,
     patchwork,
     rmarkdown
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
 VignetteBuilder: knitr
 Depends: 
     R (>= 2.10)

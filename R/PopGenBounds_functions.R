@@ -12,7 +12,7 @@ Diff = function(freqs){
   if( !all(round(rowSums(freqs*100))==100) ){
     stop("Rows of freqs matrix do not sum to 1. Do rows correspond to populations and columns to alleles?")
   }
-  
+
   K = nrow(freqs)
   M = max(colMeans(freqs))
   HS = mean(1-rowSums(freqs**2))
@@ -20,14 +20,14 @@ Diff = function(freqs){
   FST = 1-HS/HT
   GpST= FST*(K-1+HS)/(K-1)/(1-HS)
   D = K/(K-1)*(HT-HS)/(1-HS)
-  
+
   stats = tibble::tibble(statistic=c("FST","G'ST","D"), value = c(FST,GpST,D) )
-  
+
   # compute bounds
   bounds = tibble::tibble(statistic=c("FST","G'ST","D") , bound=c(Fup(K=K,M=M), Gpup(K=K,M=M), Dup(K=K,M=M) ) )
   # compute closeness to upper bound
   closeness = tibble::tibble( statistic=c("FST","G'ST","D"), bound_closeness = stats$value/bounds$bound)
-  
+
   return(dplyr::bind_rows(tibble::tibble(statistic="M",value=M),
                           dplyr::left_join(dplyr::left_join(stats,bounds,by="statistic"),closeness,by="statistic")))
 }
@@ -105,7 +105,8 @@ Gpup = function(K,M){
 #' freqs_locus2 <- matrix(c(1,0.8,0,0.2),nrow=2)
 #' freqs_locus3 <- matrix(c(1,0.2,0,0.8),nrow=2)
 #' data  <- rbind(Diff(freqs_locus1),Diff(freqs_locus2),Diff(freqs_locus2))
-#' ggbounds(M=data %>% filter(statistic=="M") %>% pull(value),FST=data %>% filter(statistic=="FST") %>% pull(value))
+#' ggbounds(M=data %>% filter(statistic=="M") %>% pull(value),FST=data %>%
+#' filter(statistic=="FST") %>% pull(value))
 ggbounds = function(M,FST,GpST=NULL,D=NULL,K=2){
   nudge = (mean(M)<0.5)*0.16-(mean(M)>=0.5)*0.25
   MFtmp = dplyr::tibble(M= seq(0.001,1-0.001,0.001),
@@ -128,7 +129,7 @@ ggbounds = function(M,FST,GpST=NULL,D=NULL,K=2){
     ggplot2::ylab(expression(italic(F[ST]))) +
     ggplot2::coord_cartesian(xlim=c(0,1),ylim=c(0,1),expand = F) +
     ggplot2::theme_bw()
-  
+
   if(!is.null(GpST)){
     plotGpST <- ggplot2::ggplot(dplyr::tibble(M=M,GpST=GpST),ggplot2::aes(x=M,y=GpST)) + ggpointdensity::geom_pointdensity() +
       ggplot2::geom_line(data=MGptmp,ggplot2::aes(x=M,y=GpST)) + ggplot2::xlab(expression(italic(M))) +
@@ -145,7 +146,7 @@ ggbounds = function(M,FST,GpST=NULL,D=NULL,K=2){
     ggplot2::coord_cartesian(xlim=c(0,1),ylim=c(0,1),expand = F) +
     ggplot2::theme_bw()
   }else{plotGpST = NULL}
-  
+
   if(!is.null(D)){
   plotD <- ggplot2::ggplot(dplyr::tibble(M=M,D=D),ggplot2::aes(x=M,y=D)) + ggpointdensity::geom_pointdensity() +
     ggplot2::geom_line(data=MDtmp,ggplot2::aes(x=M,y=D)) + ggplot2::xlab(expression(italic(M))) +
@@ -162,7 +163,7 @@ ggbounds = function(M,FST,GpST=NULL,D=NULL,K=2){
     ggplot2::coord_cartesian(xlim=c(0,1),ylim=c(0,1),expand = F) +
     ggplot2::theme_bw()
   }else{plotD=NULL}
-  
+
   if(length(M)>2) plot <- plot + ggplot2::scale_color_viridis_b()
   return(list(plotFST,plotGpST,plotD) )
 }
@@ -184,22 +185,24 @@ ggbounds = function(M,FST,GpST=NULL,D=NULL,K=2){
 #'   rep(0,4*4),0.3,0.3,0.3,0.1,rep(0,4),
 #'   rep(0,4*5),0.3,0.3,0.3,0.1),ncol=24,byrow = TRUE)
 #' ggfreqtable(popa)
+#'
+#' @importFrom rlang .data
 ggfreqtable = function(freqs){
   freqs.tmp = freqs
   if(is.null(colnames(freqs)) ) colnames(freqs.tmp) = paste0(1:ncol(freqs.tmp))
   if(is.null(rownames(freqs)) ) rownames(freqs.tmp) = paste0(1:nrow(freqs.tmp))
-  
-  freqs.long = dplyr::bind_cols(Subpopulation=rownames(freqs.tmp),dplyr::as_tibble(freqs.tmp)) %>% 
-    tidyr::pivot_longer(-Subpopulation,names_to = "Allele",values_to = "Frequency")
+
+  freqs.long = dplyr::bind_cols("Subpopulation"=rownames(freqs.tmp),dplyr::as_tibble(freqs.tmp)) %>%
+    tidyr::pivot_longer(-"Subpopulation",names_to = "Allele",values_to = "Frequency")
 
   freqs.long$Allele = factor(freqs.long$Allele,levels=unique(freqs.long$Allele))
   freqs.long$Subpopulation = factor(freqs.long$Subpopulation,levels=rev(unique(freqs.long$Subpopulation)) )
 
   freqs.long$Frequency = as.numeric(format(freqs.long$Frequency,digits=2))
-  
-ggres = ggplot2::ggplot(freqs.long,ggplot2::aes(x=Allele,y=Subpopulation,fill=Frequency)) + ggplot2::geom_tile(color="black",size=0.25) + 
-  ggplot2::geom_text(ggplot2::aes(label=Frequency))+
-  ggplot2::theme_bw() + 
+
+ggres = ggplot2::ggplot(freqs.long,ggplot2::aes(x=.data$Allele,y=.data$Subpopulation,fill=.data$Frequency)) + ggplot2::geom_tile(color="black",size=0.25) +
+  ggplot2::geom_text(ggplot2::aes(label=.data$Frequency))+
+  ggplot2::theme_bw() +
   ggplot2::scale_fill_gradientn(limits=c(0,1),colors=c("white","darkorange","darkmagenta"))+
   ggplot2::theme(
     #bold font for legend text
