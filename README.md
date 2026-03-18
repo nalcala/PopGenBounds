@@ -56,7 +56,7 @@ ggbounds(M=Diff(popa)$value[1],FST=Diff(popa)$value[2],GpST = Diff(popa)$value[3
 
 ## Citations
 
-Alcala, N., Lim, Y., & Rosenberg, N. A. (In prep)
+Lim, Y., Rosenberg, N. A., Alcala, N. (In prep)
 
 Alcala, N., & Rosenberg, N. A. (2022). Mathematical constraints on F ST: multiallelic markers in arbitrarily many populations. Philosophical Transactions of the Royal Society B, 377(1852), 20200414.
 
