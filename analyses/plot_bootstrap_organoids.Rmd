@@ -1,0 +1,425 @@
+---
+title: "plot_bootstrap_organoids"
+output: html_document
+---
+
+```{r setup}
+library(PopGenBounds)
+library(patchwork)
+
+dir_data <- "C:/Users/limy/OneDrive - International Agency for Research on Cancer/Documents/NoahCollab/code/MS_panNEN_organoids/data"
+dir_out <- "C:/Users/limy/OneDrive - International Agency for Research on Cancer/Documents/NoahCollab/code/output"
+```
+
+# Load CCF data for 7 tumor experiments
+```{r}
+#organoids_ccf_data <- get(load(file.path(dir_data, "Organoids_CCF_clusters_dataset_fracs_list.RData")))
+
+load(file.path(dir_data, "Organoids_CCF_clusters_dataset_fracs_list.RData"))
+organoids_ccf_data <- dataset_fracs_list
+
+names(organoids_ccf_data)                  # the 7 experiments
+selected <- c("SINET8", "SINET9", "LNET6", "LNET10", "LCNEC3", "LCNEC4", "PANEC1")
+data_samples <- organoids_ccf_data[selected]
+```
+
+# Clean and filter datasets
+```{r}
+
+#unparse column names first
+LCNEC4 <- do.call(data.frame, c(as.list(organoids_ccf_data[["LCNEC4"]]), check.names = FALSE))
+#filter data
+LCNEC4_clean <- filter_clonal(LCNEC4, K=3, filter_fixed=T)
+
+SINET9 <- do.call(data.frame, c(as.list(organoids_ccf_data[["SINET9"]]), check.names = FALSE))
+SINET9_clean <- filter_clonal(SINET9, K=3, filter_fixed=T)
+
+```
+```{r}
+prepare_ccf <- function(raw) {
+  # flatten matrix columns (subclonal.fractions, DP, ...) into ordinary columns
+  flat <- do.call(data.frame, c(as.list(raw), check.names = FALSE))
+
+  # CCF and depth columns, paired by sample name
+  ccf_cols <- grep("^subclonal\\.fractions\\.", names(flat), value = TRUE)
+  dp_cols  <- sub("^subclonal\\.fractions\\.", "DP.", ccf_cols)
+  K        <- length(ccf_cols)
+
+  # your filter: subclonal loci only, and not 0 in all sub-populations
+  filtered <- filter_clonal(flat, K = K)
+
+  list(data = filtered, ccf_cols = ccf_cols, dp_cols = dp_cols, K = K)
+}
+```
+
+## Check the prepared data before running bootstrap
+```{r}
+prep <- lapply(data_samples, prepare_ccf)
+
+for (e in names(prep)) {
+  p <- prep[[e]]
+  cat("\n==", e, "==\n")
+  cat("K =", p$K, "| loci:", nrow(p$data), "\n")
+  cat("CCF columns:", p$ccf_cols, "\n")
+  cat("DP columns: ", p$dp_cols, "\n")
+  cat("CCF at positions 3..:", identical(names(p$data)[3:(2 + p$K)], p$ccf_cols), "\n")
+  cat("all DP columns present:", all(p$dp_cols %in% names(p$data)), "\n")
+  cat("duplicated mutations:", sum(duplicated(p$data[, c("chr", "pos")])), "\n")
+  cat("missing CCF / DP:", sum(is.na(p$data[, p$ccf_cols])), "/", sum(is.na(p$data[, p$dp_cols])), "\n")
+}
+```
+
+```{r summary of sequencing depth}
+depth_tab <- do.call(rbind, lapply(names(prep), function(e) {
+  DP <- as.matrix(prep[[e]]$data[, prep[[e]]$dp_cols])
+  data.frame(experiment = e,
+             sample     = sub("^DP\\.", "", colnames(DP)),
+             n_loci     = nrow(DP),
+             DP_min     = apply(DP, 2, min),
+             DP_median  = apply(DP, 2, median),
+             DP_mean    = round(apply(DP, 2, mean), 1),
+             DP_max     = apply(DP, 2, max),
+             row.names  = NULL)
+}))
+depth_tab
+
+median(depth_tab$DP_median)
+```
+
+## compare with old computation strategy
+```{r}
+p   <- prep[["LCNEC3"]]
+new <- diff_biallelic(as.matrix(p$data[, p$ccf_cols]), exclude_fixed = FALSE)
+old <- t(sapply(lapply(make_popgen_input(p$data[, p$ccf_cols]), Diff), function(x) x$value[1:4]))
+all.equal(unname(new), unname(old))        # TRUE
+```
+# Run bootstrap
+```{r test}
+# quick test with a small B, also to measure time
+p <- prep[["LCNEC3"]]
+set.seed(2021)
+system.time(test <- boot_ccf(p$data, ccf_cols = p$ccf_cols, dp_cols = p$dp_cols, B = 20))
+test$mean
+```
+
+### Run on two samples
+```{r}
+LCNEC4 <- prep$LCNEC4
+SINET8 <- prep$SINET8
+
+set.seed(2021)
+res_LCNEC4 <- boot_ccf(LCNEC4$data, ccf_cols = LCNEC4$ccf_cols, dp_cols = LCNEC4$dp_cols, B = 100)
+res_SINET8 <- boot_ccf(SINET8$data, ccf_cols = SINET8$ccf_cols, dp_cols = SINET8$dp_cols, B = 100)
+```
+
+## Run on all samples
+```{r}
+# full run for all experiments
+res_ccf <- lapply(names(prep), function(e) {
+  message("== ", e)
+  p <- prep[[e]]
+  set.seed(2021)
+  boot_ccf(p$data, ccf_cols = p$ccf_cols, dp_cols = p$dp_cols, B = 1000)
+})
+names(res_ccf) <- names(prep)
+```
+## Save results
+```{r}
+saveRDS(list(prep = prep, res = res_ccf), file.path(dir_out, "organoids/organoids_bootstrap_B1000.rds"))
+```
+
+## Load results
+```{r}
+saved   <- readRDS(file.path(dir_out, "organoids/bootstrap_objects/organoids_bootstrap_B1000.rds"))
+
+prep    <- saved$prep
+res_ccf <- saved$res
+```
+
+
+# Plot
+
+## Plot two samples
+```{r, fig.width = 8, fig.height = 3}
+plot_experiment <- function(e) {
+  est <- res_ccf[[e]]$estimate
+  get <- function(s) est$value[est$statistic == s]
+  gg  <- ggbounds_raw(M = get("M"), FST = get("FST"), GpST = get("G'ST"), D = get("D"),
+                      K = prep[[e]]$K, ci = res_ccf[[e]]$mean,
+                      ci_style = "bands", mean_style = "crosshair", ci_alpha = 0.4)
+  gg[[1]] <- gg[[1]] + ggtitle(e)
+  gg[[1]] + gg[[2]] + gg[[3]]
+}
+
+res_ccf <- list(SINET8 = res_SINET8, LCNEC4 = res_LCNEC4)
+names(res_ccf)              # "SINET8" "LCNEC4"
+names(res_ccf$LCNEC4)       # "estimate" "mean" "B" "level" "type"
+
+plot_experiment("LCNEC4")
+plot_experiment("SINET8")
+
+```
+## Plot all samples
+
+
+
+## Per-locus intervals
+```{r}
+est <- res_LCNEC4$estimate
+f   <- est[est$statistic == "FST", ]
+summary(f$value_upper - f$value_lower)
+```
+
+```{r caterpillar plots}
+caterpillar_ccf <- function(res, stat, y_label, ylim = NULL) {
+  f <- res$estimate[res$estimate$statistic == stat & !is.na(res$estimate$value), ]
+  f <- f[order(f$value), ]
+  f$rank <- seq_len(nrow(f))
+  m <- res$mean[res$mean$statistic == stat, ]            # mean over loci, with its interval
+
+  ggplot(f, aes(x = rank, y = value, ymin = value_lower, ymax = value_upper)) +
+    geom_linerange(colour = "grey70", linewidth = 0.15) +
+    geom_point(size = 0.3) +
+    geom_hline(yintercept = m$value, colour = "red", linetype = "dashed", linewidth = 0.4) +
+    labs(x = paste0("Loci (ranked by ", stat, ")"), y = y_label) +
+    coord_cartesian(ylim = ylim) +
+    theme_bw()
+}
+
+plot_caterpillars <- function(res, title = NULL, ylim = c(0, 1)) {
+  p_fst  <- caterpillar_ccf(res, "FST",  expression(italic(F[ST])),       ylim)
+  p_gpst <- caterpillar_ccf(res, "G'ST", expression(italic(G*minute[ST])), ylim)
+  p_d    <- caterpillar_ccf(res, "D",    expression(italic(D)),            ylim)
+  p_m <- caterpillar_ccf(res, "M", expression(italic(M)), ylim = c(0, 1))
+  (p_fst + p_gpst + p_d + p_m) + plot_annotation(title = title)
+}
+
+plot_caterpillars(res_ccf$SINET8, title = "SINET8")
+plot_caterpillars(res_ccf$LCNEC4, title = "LCNEC4")
+```
+
+
+## Plot individual bootstrap distributions
+```{r}
+p   <- prep$LCNEC4
+CCF <- as.matrix(p$data[, p$ccf_cols])
+DP  <- as.matrix(p$data[, p$dp_cols])
+
+obs <- diff_biallelic(CCF)
+set.seed(2021)
+reps <- lapply(1:10, function(b) diff_biallelic(ccf_resample(CCF, DP)))
+
+# one row of three panels (FST, G'ST, D) from a loci x 4 matrix
+bounds_row <- function(mat, title) {
+  gg <- ggbounds_raw(M = mat[, "M"], FST = mat[, "FST"], GpST = mat[, "G'ST"], D = mat[, "D"],
+                     K = p$K, density_colors = TRUE, mean_style = "bound")
+  gg[[1]] <- gg[[1]] + ggtitle(title)
+  gg[[1]] + gg[[2]] + gg[[3]]
+}
+
+# observed and the first three replicates, one row each
+bounds_row(obs, "observed") /
+bounds_row(reps[[1]], "replicate 1") /
+bounds_row(reps[[2]], "replicate 2") /
+bounds_row(reps[[3]], "replicate 3")
+```
+
+```{r}
+boot_all <- do.call(rbind, reps)                      # all replicates stacked: (10 x loci) x 4
+
+gg <- ggbounds_raw(M = obs[, "M"], FST = obs[, "FST"], GpST = obs[, "G'ST"], D = obs[, "D"],
+                   K = p$K, density_colors = TRUE, point_color = "black", mean_style = "bound")
+
+
+add_boot <- function(plot, stat) {
+  pts <- data.frame(M = boot_all[, "M"], y = boot_all[, stat])
+  plot$layers <- c(geom_point(data = pts, aes(x = M, y = y), inherit.aes = FALSE,
+                              colour = "grey75", size = 0.3, na.rm = TRUE),
+                   plot$layers)                       # bootstrap points drawn first, behind everything
+  plot
+}
+
+add_boot(gg[[1]], "FST") + add_boot(gg[[2]], "G'ST") + add_boot(gg[[3]], "D")
+```
+```{r effect of one replicate}
+p   <- prep$LCNEC4
+CCF <- as.matrix(p$data[, p$ccf_cols])
+DP  <- as.matrix(p$data[, p$dp_cols])
+
+obs <- diff_biallelic(CCF)
+set.seed(2021)
+rep1 <- diff_biallelic(ccf_resample(CCF, DP))         # one bootstrap replicate
+
+gg <- ggbounds_raw(M = obs[, "M"], FST = obs[, "FST"], GpST = obs[, "G'ST"], D = obs[, "D"],
+                   K = p$K, density_colors = TRUE, point_color = "black", mean_style = "bound")
+
+add_boot <- function(plot, boot_mat, stat) {
+  pts <- data.frame(M = boot_mat[, "M"], y = boot_mat[, stat])
+  plot$layers <- c(geom_point(data = pts, aes(x = M, y = y), inherit.aes = FALSE,
+                              colour = "grey65", size = 1, na.rm = TRUE),
+                   plot$layers)                       # replicate points drawn first, behind
+  plot
+}
+
+add_moves <- function(plot, obs_mat, boot_mat, stat) {
+  seg <- data.frame(x = obs_mat[, "M"], y = obs_mat[, stat],
+                    xend = boot_mat[, "M"], yend = boot_mat[, stat])
+  seg <- seg[complete.cases(seg), ]
+  plot$layers <- c(geom_segment(data = seg, aes(x = x, y = y, xend = xend, yend = yend),
+                                inherit.aes = FALSE, colour = "grey75", linewidth = 0.2),
+                   plot$layers)
+  plot
+}
+
+add_moves(add_boot(gg[[1]], rep1, "FST"), obs, rep1, "FST") +
+  add_moves(add_boot(gg[[2]], rep1, "G'ST"), obs, rep1, "G'ST") +
+  add_moves(add_boot(gg[[3]], rep1, "D"), obs, rep1, "D")
+```
+
+
+## Plot resampling of CCF
+```{r Observed versus resampled CCF, per locus and sample}
+p   <- prep$SINET8
+CCF <- as.matrix(p$data[, p$ccf_cols])
+DP  <- as.matrix(p$data[, p$dp_cols])
+
+set.seed(2021)
+CCF_b <- ccf_resample(CCF, DP)                       # one replicate
+
+scatter_df <- data.frame(sample   = rep(p$ccf_cols, each = nrow(CCF)),
+                         observed = as.vector(CCF),
+                         resampled = as.vector(CCF_b))
+scatter_df$sample <- sub("^subclonal\\.fractions\\.", "", scatter_df$sample)
+
+ggplot(scatter_df, aes(x = observed, y = resampled)) +
+  geom_abline(colour = "red") +
+  geom_point(size = 0.4, alpha = 0.4) +
+  facet_wrap(~ sample) +
+  coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(x = "observed CCF", y = "resampled CCF (one replicate)") +
+  theme_bw()
+```
+
+
+```{r Distribution of CCFs per sample, observed versus 10 replicates}
+set.seed(2021)
+reps <- lapply(1:10, function(b) ccf_resample(CCF, DP))
+
+to_long <- function(mat, source) data.frame(
+  source = source,
+  sample = rep(sub("^subclonal\\.fractions\\.", "", p$ccf_cols), each = nrow(mat)),
+  ccf    = as.vector(mat))
+
+dist_df <- rbind(to_long(CCF, "observed"),
+                 do.call(rbind, lapply(1:10, function(b) to_long(reps[[b]], paste("rep", b)))))
+dist_df$type <- ifelse(dist_df$source == "observed", "observed", "bootstrap")
+
+ggplot(dist_df, aes(x = ccf, group = source, colour = type, linewidth = type)) +
+  geom_freqpoly(binwidth = 0.02, boundary = 0) +
+  scale_colour_manual(values = c(observed = "black", bootstrap = "grey60")) +
+  scale_linewidth_manual(values = c(observed = 0.8, bootstrap = 0.3)) +
+  facet_wrap(~ sample, scales = "free_y") +
+  labs(x = "CCF", y = "number of loci", colour = NULL, linewidth = NULL) +
+  theme_bw()
+```
+
+
+```{r Joint CCFs, parent versus organoid,}
+joint_df <- rbind(data.frame(source = "observed",    parent = CCF[, 1],   pdto = CCF[, 2]),
+                  data.frame(source = "replicate 1", parent = CCF_b[, 1], pdto = CCF_b[, 2]))
+
+ggplot(joint_df, aes(x = parent, y = pdto)) +
+  geom_point(size = 0.4, alpha = 0.4) +
+  facet_wrap(~ source) +
+  coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(x = paste("CCF,", sub("^subclonal\\.fractions\\.", "", p$ccf_cols[1])),
+       y = paste("CCF,", sub("^subclonal\\.fractions\\.", "", p$ccf_cols[2]))) +
+  theme_bw()
+```
+
+
+# Standard error
+```{r}
+sem <- function(x) { x <- x[!is.na(x)]; sd(x) / sqrt(length(x)) }
+stats <- c("M", "FST", "G'ST", "D")
+
+sem_ccf <- do.call(rbind, lapply(names(res_ccf), function(e) {
+  est <- res_ccf[[e]]$estimate
+  do.call(rbind, lapply(stats, function(s) {
+    x <- est$value[est$statistic == s]
+    data.frame(experiment = e,
+               K          = prep[[e]]$K,
+               n_loci     = sum(!is.na(x)),
+               statistic  = s,
+               mean       = mean(x, na.rm = TRUE),
+               SEM_loci   = sem(x))
+  }))
+}))
+sem_ccf
+```
+
+```{r}
+stats <- c("M", "FST", "G'ST", "D")
+sapply(stats, function(s) summary(sem_ccf[sem_ccf$statistic==s,]$SEM_loci))
+```
+
+
+#### Cluster SEM option
+```{r}
+sem <- function(x) { x <- x[!is.na(x)]; sd(x) / sqrt(length(x)) }
+
+se_cluster <- function(value, unit) {
+  ok  <- !is.na(value) & !is.na(unit); value <- value[ok]; unit <- unit[ok]
+  n_u <- tapply(value, unit, length); m_u <- tapply(value, unit, mean)
+  w   <- n_u / sum(n_u); m <- sum(w * m_u); U <- length(m_u)
+  sqrt(U / (U - 1) * sum(w^2 * (m_u - m)^2))
+}
+
+se_table_ccf <- function(e, unit = c("cluster", "mutation")) {
+  unit <- match.arg(unit)
+  est  <- res_ccf[[e]]$estimate
+  dat  <- prep[[e]]$data
+
+  tab <- do.call(rbind, lapply(c("M", "FST", "G'ST", "D"), function(s) {
+    f   <- est[est$statistic == s, ]
+    f   <- f[order(f$locus), ]
+    m   <- mean(f$value, na.rm = TRUE)
+    err <- if (unit == "mutation") sem(f$value)
+           else se_cluster(f$value, dat$Cluster[f$locus])
+    data.frame(statistic = s, value = m, value_lower = m - err, value_upper = m + err, SE = err)
+  }))
+
+  # no error bar for M (as in the toad figures)
+  is_m <- tab$statistic == "M"
+  tab$value_lower[is_m] <- tab$value_upper[is_m] <- tab$value[is_m]
+  tab
+}
+
+se_tab <- lapply(names(res_ccf), se_table_ccf, unit = "cluster")
+names(se_tab) <- names(res_ccf)
+se_tab$LCNEC4
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

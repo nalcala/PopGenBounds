@@ -1,0 +1,602 @@
+---
+title: "plot_bootstrap_results"
+output: html_document
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+This Rmd runs functions for the outputs of toad application results in Lim et al.
+
+```{r setup}
+library(PopGenBounds)
+library(patchwork)
+
+dir_output <- "C:/Users/limy/OneDrive - International Agency for Research on Cancer/Documents/NoahCollab/code/output"
+```
+
+
+# Load genotype data and allele frequencies
+```{r}
+toad_genotypes <- PopGenBounds::toad_genotypes
+Toad_microsat_freq = PopGenBounds::Toad_microsat_freq
+
+# fix allele order for each locus
+lv   <- microsat_allele_levels(toad_genotypes)
+```
+
+```{r}
+n_per_pop <- table(toad_genotypes$pop)     # number of individuals in each population
+n_per_pop
+
+median(n_per_pop)                          # median over populations
+```
+
+# Run or load bootstrap
+## For global population (K = 47)
+
+```{r run global bootstrap}
+set.seed(2021)
+res <- boot_stat(toad_genotypes, stat_fun = Diff, B = 1000, type="percentile")
+res$mean             # check the labels in the 'statistic' column
+```
+```{r save bootstrap output}
+saveRDS(res, file.path(dir_output, "global_bootstrap_B1000.rds"))
+```
+
+```{r load saved bootstrap object}
+boot_res_global <- readRDS(file.path(dir_output, "toad/bootstrap_objects/global_bootstrap_B1000.rds"))
+names(boot_res_global)
+```
+## For pairwise comparisons (K = 2): 1081 pairs
+
+```{r}
+set.seed(2021)
+res_pw <- boot_pairwise(toad_genotypes, B = 1000)
+```
+
+```{r save boot output}
+saveRDS(res_pw, file.path(dir_output, "pairwise_bootstrap_B1000_monomorph_excluded.rds"))
+```
+
+
+```{r check mono exclusion}
+pts <- do.call(rbind, res_pw$estimate)
+get <- function(s) pts$value[pts$statistic == s]
+
+sum(!is.na(get("FST")))                                             # 9622, as in the old code
+all.equal(sort(get("FST")), sort(toad.tib_pairs$FST))               # TRUE (sort drops NA)
+all.equal(mean(get("FST"), na.rm = TRUE),
+          res_pw$overall$value[res_pw$overall$statistic == "FST"])  # TRUE: red dot
+```
+
+
+```{r load saved bootstrap object}
+res_pw <- readRDS(file.path(dir_output, "toad/bootstrap_objects/pairwise_bootstrap_B1000_monomorph_excluded.rds"))
+names(res_pw)
+res_pw$type
+```
+
+```{r check the number of stats on monoorphic loci (M=1)}
+pts <- do.call(rbind, lapply(names(res_pw$estimate), function(l)
+  cbind(locus = l, res_pw$estimate[[l]])))
+mono <- pts[pts$statistic == "M" & pts$value >= 1, ]
+table(mono$locus)            # number of monomorphic pairs per locus
+```
+
+# Plots
+
+## Plot statistics distributions and bootstrap CI for global comparison
+
+```{r, fig.width = 8, fig.height = 3}
+res <- boot_res_global
+get <- function(s) sapply(res$estimate, function(d) d$value[d$statistic == s])
+
+ggtoad <- ggbounds_raw(M = get("M"), FST = get("FST"), GpST = get("G'ST"), D = get("D"),
+                       K = 47, ci = res$mean, density_colors = FALSE, ci_style="bands")
+
+ggtoad[[1]] + ggtoad[[2]] + ggtoad[[3]]
+```
+## Caterpillar plot for global bootstrap
+```{r, fig.width = 8, fig.height = 2.8}
+caterpillar_loci <- function(res, stat, y_label, ylim = NULL) {
+  f <- do.call(rbind, lapply(names(res$estimate), function(l) {
+    d <- res$estimate[[l]]
+    cbind(locus = l, d[d$statistic == stat, c("value", "value_lower", "value_upper")])
+  }))
+  f$locus <- factor(f$locus, levels = f$locus[order(f$value)])     # rank by value
+  m <- res$mean[res$mean$statistic == stat, ]                       # mean over loci
+
+  ggplot(f, aes(x = locus, y = value, ymin = value_lower, ymax = value_upper)) +
+    #annotate("rect", xmin = -Inf, xmax = Inf, ymin = m$value_lower, ymax = m$value_upper,
+    #         fill = "red", alpha = 0.15) +
+    #geom_hline(yintercept = m$value, colour = "red", linetype = "dashed", linewidth = 0.4) +
+    geom_linerange(colour = "grey60", linewidth = 0.8) +
+    geom_point(size = 1.5) +
+    labs(x = paste("Loci (ranked by", stat, ")"), y = y_label) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    coord_cartesian(ylim = ylim)
+}
+
+res <- boot_res_global
+p_fst  <- caterpillar_loci(res, "FST",  expression(bolditalic(F[ST])),       ylim = c(0, 1))
+p_gpst <- caterpillar_loci(res, "G'ST", expression(bolditalic(G*minute[ST])), ylim = c(0, 1))
+p_d    <- caterpillar_loci(res, "D",    expression(bolditalic(D)),            ylim = c(0, 1))
+
+toad_caterpilar <- p_fst + p_gpst + p_d
+
+#ggsave(file.path(dir_output, "toad/figures/Fig_caterpillar_toad_global.pdf"), toad_caterpilar,
+#       width = 8, height = 2.8)
+```
+
+## Plot SEM (standard error of the mean) for global comparisons
+
+```{r}
+res <- boot_res_global
+get_g <- function(s) sapply(res$estimate, function(d) d$value[d$statistic == s])  #returns vector of stat values in loci
+
+# the standard error of mean: sd(values across loci)/sqrt(n_loci)
+sem <- function(x) { x <- x[!is.na(x)]; sd(x) / sqrt(length(x)) }
+
+sapply(c("M", "FST", "G'ST", "D"), function(s) sem(get_g(s)))
+```
+
+```{r plot SEM, fig.width = 7, fig.height = 2.4}
+stats <- c("M", "FST", "G'ST", "D")
+sem_tab <- do.call(rbind, lapply(stats, function(s) {
+  x <- get_g(s); m <- mean(x, na.rm = TRUE); e <- sem(x)
+  data.frame(statistic = s, value = m, value_lower = m - e, value_upper = m + e, sem = e)
+}))
+sem_tab
+
+sem_tab$value_lower[sem_tab$statistic == "M"] <- sem_tab$value[sem_tab$statistic == "M"]
+sem_tab$value_upper[sem_tab$statistic == "M"] <- sem_tab$value[sem_tab$statistic == "M"]
+
+gg <- ggbounds_raw(M = get_g("M"), FST = get_g("FST"), GpST = get_g("G'ST"), D = get_g("D"),
+                   K = 47, ci = sem_tab, ci_style = "cross", mean_style = "bound", mean_linetype = "dotted",
+                   ci_color = "red", ci_linewidth = 0.6, ci_alpha=0.08, density_colors = F)
+
+
+toad_global_plot <- gg[[1]] + gg[[2]] + gg[[3]]
+
+toad_global_plot
+
+ggsave(file.path(dir_output, "toad/figures/Fig_stats_SEM_toad_global_dotted_red.svg"), toad_global_plot,
+       width = 7, height = 2.2)
+
+sem_tab[, c("statistic", "sem")]
+```
+
+## Plot statistics distributions and bootstrap CI for pairwise comparison
+
+```{r, fig.width = 7, fig.height = 2.3}
+
+pts <- do.call(rbind, res_pw$estimate)                 # all loci and pairs
+get <- function(s) pts$value[pts$statistic == s]
+
+ggtoad_pw = ggbounds_raw(M = get("M"), FST = get("FST"), GpST = get("G'ST"), D = get("D"),
+             K = 2, relative_density = FALSE, density_limits = c(0, 5000), 
+             density_colors = TRUE, mean_style = "bound")
+
+gg_pairs <- (ggtoad_pw[[1]] + guides(color = "none")) +
+            (ggtoad_pw[[2]] + guides(color = "none")) +
+             ggtoad_pw[[3]]
+gg_pairs
+
+#save plots
+
+#ggsave(filename = "../vignettes/Toad_files/figures/Fig_toad_pairwise_boot.svg", gg_pairs, height = 2.3,width=2.5*3)
+```
+```{r, with mono loci, fig.width = 7, fig.height = 2.5}
+
+pts <- do.call(rbind, res_pw$estimate)                 # all loci and pairs
+get <- function(s) pts$value[pts$statistic == s]
+
+ggtoad_pw = ggbounds_raw(M = get("M"), FST = get("FST"), GpST = get("G'ST"), D = get("D"),
+             K = 2, ci = res_pw$overall, relative_density = FALSE, density_limits = c(0, 5000), density_colors = TRUE)
+
+gg_pairs <- (ggtoad_pw[[1]] + guides(color = "none")) +
+            (ggtoad_pw[[2]] + guides(color = "none")) +
+             ggtoad_pw[[3]]
+gg_pairs
+```
+## Caterpillar plots for pairwise bootstrap
+```{r, fig.width = 8, fig.height = 2.8}
+caterpillar <- function(tab, stat, y_label, ylim) {
+  f <- tab[tab$statistic == stat, ]
+  f <- f[order(f$value), ]
+  f$rank <- seq_len(nrow(f))
+  ggplot(f, aes(x = rank, y = value, ymin = value_lower, ymax = value_upper)) +
+    geom_linerange(colour = "grey60") +
+    geom_point(size = 0.4) +
+    labs(x = paste("Population pairs (ranked by", stat,")"), y = y_label) +
+    theme_bw() +
+    coord_cartesian(ylim = ylim)
+}
+
+p_fst  <- caterpillar(res_pw$mean, "FST",  expression(bolditalic(F[ST])), ylim = c(0, 1))
+p_gpst <- caterpillar(res_pw$mean, "G'ST", expression(bolditalic(G*minute[ST])), ylim = c(0, 1))
+p_d    <- caterpillar(res_pw$mean, "D",    expression(bolditalic(D)), ylim = c(0, 1))
+
+toad_pw_cat <- p_fst + p_gpst + p_d
+
+#ggsave(file.path(dir_output, "toad/figures/Fig_caterpillar_toad_pairwise.pdf"), toad_pw_cat,
+#       width = 8, height = 2.8)
+```
+
+
+## Plot SEM for pairwise comparisons (computed from mean stats over loci of pairwise means). 
+```{r fig.width = 7, fig.height = 2.4}
+stats <- c("M", "FST", "G'ST", "D")
+get <- function(s) pts$value[pts$statistic == s]
+
+pts <- do.call(rbind, lapply(names(res_pw$estimate), function(l)
+  cbind(locus = l, res_pw$estimate[[l]])))
+
+se_cluster <- function(f) {
+  f   <- f[!is.na(f$value), ]
+  n_l <- tapply(f$value, f$locus, length)       # points per locus
+  m_l <- tapply(f$value, f$locus, mean)         # locus means
+  w   <- n_l / sum(n_l)                         # weights
+  m   <- sum(w * m_l)                           # mean over all points (the red dot)
+  L   <- length(m_l)
+  sqrt(L / (L - 1) * sum(w^2 * (m_l - m)^2))    # SEM for weighted sum of loci means
+}
+
+se_tab_pw <- do.call(rbind, lapply(stats, function(s) {
+  f <- pts[pts$statistic == s, ]
+  m <- mean(f$value, na.rm = TRUE)              # mean over all points
+  e <- se_cluster(f)
+  data.frame(statistic = s, value = m, value_lower = m - e, value_upper = m + e, se = e)
+}))
+
+# no bar for M
+is_m <- se_tab_pw$statistic == "M"
+se_tab_pw$value_lower[is_m] <- se_tab_pw$value_upper[is_m] <- se_tab_pw$value[is_m]
+se_tab_pw
+```
+```{r}
+
+gg_pw <- ggbounds_raw(M = get("M"), FST = get("FST"),
+                      GpST = get("G'ST"), D = get("D"),
+                      K = 2, ci = se_tab_pw, ci_style = "cross", mean_style = "bound",
+                      mean_linetype = "dotted",
+                      relative_density = FALSE, density_limits = c(0, 5000),
+                      ci_color="red", ci_linewidth=0.6, ci_alpha=0.1)
+toad_pw_plot <- gg_pw[[1]] + gg_pw[[2]] + gg_pw[[3]]
+toad_pw_plot
+
+ggsave(file.path(dir_output, "toad/figures/Fig_stats_SEM_toad_pairwise_dotted_red.svg"), toad_pw_plot, width = 7, height = 2.2)
+```
+
+
+```{r if SEM were computed from loci with equal weight}
+pts <- do.call(rbind, lapply(names(res_pw$estimate), function(l)
+  cbind(locus = l, res_pw$estimate[[l]])))
+get_pw <- function(s) pts[pts$statistic == s & !is.na(pts$value), ]   # values of one statistic, with locus
+lm_pw <- function(s) tapply(get_pw(s)$value, get_pw(s)$locus, mean)   # 10 pairwise locus means
+sapply(stats, function(s) sem(lm_pw(s)))                               # equal-weight pairwise SEM
+```
+
+## Figure plots
+
+
+
+
+### Caterpillar
+```{r}
+fig_cat <- toad_pw_cat / toad_caterpilar +
+  plot_annotation(tag_levels = "a", tag_prefix = "(", tag_suffix = ")")&
+  theme(plot.tag = element_text(size = 14))
+fig_cat
+
+ggsave(file.path(dir_output, "toad/figures/figure paper/Fig_caterpillar_toad.pdf"), fig_cat,
+       width = 8, height = 4.8)
+```
+
+```{r}
+ggsave(file.path(dir_output, "toad/figures/figure paper/Fig_caterpillar_toad.png"), fig_cat,
+       width = 8, height = 4.8, dpi = 300)
+```
+
+
+### Distributions
+```{r}
+fig_sem <- toad_pw_plot / toad_global_plot +
+  plot_annotation(tag_levels = "a", tag_prefix = "(", tag_suffix = ")") &
+  theme(plot.tag = element_text(size = 10, face = "bold"))
+fig_sem
+
+ggsave(file.path(dir_output, "toad/figures/figure_paper/Fig_bounds_sem_toad.pdf"), fig_sem,
+       width = 7, height = 4.5)
+```
+```{r}
+ggsave(file.path(dir_output, "toad/figures/figure_paper/Fig_bounds_sem_toad.png"), fig_sem,
+       width = 7, height = 4.5, dpi = 300)
+```
+
+
+# Tables
+
+```{r helper function to report stats in wide format and change naming}
+to_wide <- function(long, id_cols) {
+  measures <- c("value", "value_lower", "value_upper", "value_bias", "value_corrected")
+  keep <- intersect(c(id_cols, "statistic", measures), names(long))
+  w <- reshape(as.data.frame(long[, keep]), idvar = id_cols, timevar = "statistic",
+               direction = "wide")
+
+  nm <- names(w)                                          # e.g. value_upper.M -> M_CI_upper
+  nm <- sub("^value_lower\\.(.*)$",     "\\1_CI_lower",  nm)
+  nm <- sub("^value_upper\\.(.*)$",     "\\1_CI_upper",  nm)
+  nm <- sub("^value_bias\\.(.*)$",      "\\1_bias",      nm)
+  nm <- sub("^value_corrected\\.(.*)$", "\\1_corrected", nm)
+  nm <- sub("^value\\.(.*)$",           "\\1",           nm)   # value.M -> M (must come last)
+  names(w) <- nm
+
+  for (s in unique(long$statistic)) {
+    w[[paste0(s, "_CI_width")]] <- w[[paste0(s, "_CI_upper")]] - w[[paste0(s, "_CI_lower")]]
+  }
+  rownames(w) <- NULL
+  w
+}
+```
+
+## Global bootstrap results
+
+```{r setting}
+res <- boot_res_global
+gl <- do.call(rbind, lapply(names(res$estimate), function(l)
+  cbind(locus = l, res$estimate[[l]])))
+stats <- c("M", "FST", "G'ST", "D")
+```
+
+
+### Per-locus table
+```{r}
+global_per_locus <- to_wide(gl, id_cols = "locus")
+head(global_per_locus)
+```
+
+### Mean over loci
+```{r}
+m <- as.data.frame(res$mean)
+
+global_mean <- data.frame(
+  K               = 47,
+  n_loci          = length(res$estimate),
+  statistic       = m$statistic,
+  value           = m$value,
+  CI_lower        = m$value_lower,
+  CI_upper        = m$value_upper,
+  CI_width        = m$value_upper - m$value_lower,
+  value_bias      = m$value_bias,
+  value_corrected = m$value_corrected,
+  SEM_loci        = unname(sapply(m$statistic, function(s) sem(gl$value[gl$statistic == s])))
+
+)
+
+global_mean
+```
+
+### Summary of global bootstrap
+
+```{r summary of bootstrap CI global}
+
+
+locus_summary <- do.call(rbind, lapply(stats, function(s) {
+  f <- gl[gl$statistic == s, ]
+  w <- f$value_upper - f$value_lower
+  data.frame(statistic       = s,
+             value_min       = min(f$value, na.rm = TRUE),
+             value_median    = median(f$value, na.rm = TRUE),
+             value_max       = max(f$value, na.rm = TRUE),
+             CI_width_median = median(w, na.rm = TRUE),
+             CI_width_mean   = mean(w, na.rm = TRUE),
+             CI_width_max    = max(w, na.rm = TRUE),
+             median_bias     = median(f$value_bias, na.rm = TRUE))
+}))
+
+print(locus_summary, digits = 3)
+```
+
+## Pairwise bootstrap results
+
+### Mean over loci for each pair
+
+```{r, csv table mean per pair}
+m <- res_pw$mean[, c("pop1", "pop2", "statistic", "value", "value_lower", "value_upper")]
+pairwise_per_pair <- to_wide(res_pw$mean, id_cols = c("pop1", "pop2"))
+names(pairwise_per_pair)   # pop1, pop2, value.M, value_lower.M, value_upper.M, value.FST, ...
+write.csv(pairwise_per_pair, file.path(dir_output, "toad/tables/toad_pairwise_bootstrap_mean_loci.csv"), row.names = FALSE)
+```
+```{r heatmap}
+library(ggplot2)
+f <- res_pw$mean[res_pw$mean$statistic == "FST", ]
+pops <- levels(toad_genotypes$pop)
+
+hm <- rbind(data.frame(x = f$pop1, y = f$pop2, fill = f$value,                 what = "FST"),
+            data.frame(x = f$pop2, y = f$pop1, fill = f$value_upper - f$value_lower, what = "CI width"))
+hm$x <- factor(hm$x, levels = pops); hm$y <- factor(hm$y, levels = pops)
+
+ggplot(hm, aes(x, y, fill = fill)) +
+  geom_tile() +
+  facet_wrap(~ what) +
+  scale_fill_viridis_c() +
+  coord_fixed() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, size = 5), axis.text.y = element_text(size = 5),
+        axis.title = element_blank())
+```
+
+### Pairwise overall mean (over loci and pairs)
+```{r}
+pts <- do.call(rbind, lapply(names(res_pw$estimate), function(l)
+  cbind(locus = l, res_pw$estimate[[l]])))
+
+se_cluster <- function(value, locus) {
+  ok  <- !is.na(value); value <- value[ok]; locus <- locus[ok]
+  n_l <- tapply(value, locus, length); m_l <- tapply(value, locus, mean)
+  w   <- n_l / sum(n_l); m <- sum(w * m_l); L <- length(m_l)
+  sqrt(L / (L - 1) * sum(w^2 * (m_l - m)^2))
+}
+
+o <- as.data.frame(res_pw$overall)
+
+pairwise_overall <- data.frame(
+  K               = 2,
+  n_loci          = length(res_pw$estimate),
+  statistic       = o$statistic,
+  value           = o$value,
+  CI_lower        = o$value_lower,
+  CI_upper        = o$value_upper,
+  CI_width        = o$value_upper - o$value_lower,
+  value_bias      = o$value_bias,
+  value_corrected = o$value_corrected,
+  SE_loci         = unname(sapply(o$statistic, function(s) {
+                      f <- pts[pts$statistic == s, ]
+                      se_cluster(f$value, f$locus)
+                    }))
+)
+pairwise_overall
+```
+
+### Summary of pairwise bootstrap
+
+#### Summary of CI on the mean across loci
+```{r summary of bootstrap CI pairwise}
+pw <- res_pw$mean
+stats <- c("M", "FST", "G'ST", "D")
+
+pair_summary <- do.call(rbind, lapply(stats, function(s) {
+  f <- pw[pw$statistic == s, ]
+  w <- f$value_upper - f$value_lower
+  data.frame(statistic      = s,
+             value_min            = min(f$value, na.rm = TRUE),
+             value_median         = median(f$value, na.rm = TRUE),
+             value_max            = max(f$value, na.rm = TRUE),
+             CI_width_median = median(w, na.rm = TRUE),
+             CI_width_mean   = mean(w, na.rm = TRUE),
+             CI_width_max    = max(w, na.rm = TRUE),
+             bias_median     = median(f$value_bias, na.rm = TRUE))
+}))
+
+print(pair_summary, digits = 3)
+```
+#### Summary of per-locus and per-pair CI 
+```{r}
+pts <- do.call(rbind, lapply(names(res_pw$estimate), function(l)
+  cbind(locus = l, res_pw$estimate[[l]])))
+stats <- c("M", "FST", "G'ST", "D")
+
+pair_locus_summary <- do.call(rbind, lapply(stats, function(s) {
+  f <- pts[pts$statistic == s & !is.na(pts$value), ]
+  w <- f$value_upper - f$value_lower
+  data.frame(statistic       = s,
+             n               = nrow(f),
+             value_min       = min(f$value),
+             value_median    = median(f$value),
+             value_max       = max(f$value),
+             median_ci_width = median(w, na.rm = TRUE),
+             mean_ci_width   = mean(w, na.rm = TRUE),
+             max_ci_width    = max(w, na.rm = TRUE),
+             median_bias     = median(f$value_bias, na.rm = TRUE))
+}))
+
+print(pair_locus_summary, digits = 3)
+```
+#### Pairwise per-locus values table
+```{r}
+pairwise_per_locus <- to_wide(pts, id_cols = c("locus", "pop1", "pop2"))
+dim(pairwise_per_locus)      # 10810 rows
+names(pairwise_per_locus)    # locus, pop1, pop2, M, M_CI_lower, M_CI_upper, ..., D_CI_width
+
+# exclude monomorphic pairs 
+pairwise_per_locus <- pairwise_per_locus[!is.na(pairwise_per_locus$M), ]
+nrow(pairwise_per_locus)
+```
+
+
+## Create supplementary table for all toad bootstrap results
+```{r}
+library(writexl)
+
+readme <- data.frame(
+  item = c("Method", "Interval",
+           "global_per_locus", "global_mean", "global_summary", "pairwise_per_locus",                 
+           "pairwise_per_locus_summary", "pairwise_mean_per_pair", "pairwise_mean_overall", 
+           "pairwise_mean_summary", 
+           "value / <stat>", "CI_lower / CI_upper", "CI_width",
+           "value_bias", "value_corrected",
+           "SEM_loci / SE_loci"),
+  description = c(
+    "Bootstrap resampling individuals with replacement within each population; pair-locus combinations with M = 1 excluded in pairwise analyses",
+    paste0(res$level * 100, "% ", res$type, " bootstrap interval (B = ", res$B, ")"),
+    "Sheet: statistics and intervals for each locus, all 47 populations (K = 47)",
+    "Sheet: mean over loci of each statistic, with interval computed from the mean within each replicate",
+    "Sheet: summary over loci of values and per-locus interval widths",
+    "Sheet: statistics and intervals for each locus and pair of populations (combinations with M = 1 excluded)",
+    "Sheet: summary over all pair-locus combinations of values and per-locus interval widths",
+    "Sheet: mean over loci of each statistic for each pair of populations (K = 2), with intervals",
+    "Sheet: mean over all pairs and loci of each statistic, with interval computed from the mean within each replicate",
+    "Sheet: summary over pairs of values and interval widths",
+    "Statistic computed on the original data (<stat> = M, FST, G'ST or D)",
+    "Confidence limits",
+    "CI_upper minus CI_lower",
+    "Mean of bootstrap values minus value (estimated bias)",
+    "value minus value_bias (bias-corrected estimate)",
+    "Standard error of the mean across loci (variation among loci)"))
+readme
+
+write_xlsx(list(README             = readme,
+                global_per_locus   = global_per_locus,
+                global_mean        = global_mean,
+                global_summary     = locus_summary,
+                pairwise_per_locus      = pairwise_per_locus,
+                pairwise_per_locus_summary = pair_locus_summary,
+                pairwise_mean_per_pair  = pairwise_per_pair,
+                pairwise_mean_overall   = pairwise_overall,
+                pairwise_mean_summary   = pair_summary),
+           file.path(dir_output, "toad/tables/Table_S_toad_bootstrap.xlsx"))
+```
+
+
+
+
+
+# Other
+
+## Plot individual loci
+```{r, , fig.width = 7, fig.height = 2.7}
+plot_locus <- function(l) {
+  d <- res_pw$estimate[[l]]
+  g <- function(s) d$value[d$statistic == s]
+  p <- ggbounds_raw(M = g("M"), FST = g("FST"), GpST = g("G'ST"), D = g("D"), K = 2,
+                    relative_density = FALSE, density_limits = c(0, 600))
+  p[[1]] <- p[[1]] + ggtitle(l)
+  p[[1]] + p[[2]] + p[[3]]
+}
+
+plot_locus("F22")                                         # one locus
+plot_locus("1A")                                         # one locus
+
+#all_loci <- lapply(names(boot_res_pw$estimate), plot_locus)  # all loci
+#wrap_plots(all_loci, ncol = 1)
+```
+```{r locus summary}
+freq <- microsat_freq(toad_genotypes)
+locus_summary <- data.frame(
+  locus       = names(freq),
+  n_alleles   = sapply(freq, ncol),
+  M_global    = sapply(freq, function(f) max(colMeans(f))),
+  mono_pops   = sapply(freq, function(f) sum(apply(f, 1, max) >= 1 - 1e-12)),
+  mono_pairs  = sapply(boot_res_pw$estimate, function(d)
+                  sum(is.na(d$value[d$statistic == "FST"]))))
+locus_summary
+```
+
+
