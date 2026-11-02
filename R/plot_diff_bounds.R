@@ -26,10 +26,16 @@
 #' @param mean_style How to mark the mean: `"crosshair"` (default; dashed red
 #'   lines through the mean, across the whole plot) or `"bound"` (solid red
 #'   segment from 0 to the upper bound at the mean of \eqn{M}).
+#' @param mean_linetype Line type of the red segment when `mean_style = "bound"`,
+#'   e.g. `"solid"` (default), `"dashed"` or `"dotted"`.
 #' @param ci_style How to draw the intervals: `"bands"` (shaded bands across
 #'   the plot) or `"cross"` (crossed error bars centred on the intervals).
 #' @param ci_color Colour of the error bars when `ci_style = "cross"`.
-#' @param ci_linewidth Line width of the error bars when `ci_style = "cross"`
+#' @param ci_linewidth Line width of the error bars when `ci_style = "cross"`.
+#' @param ci_cap Width of the caps at the ends of the error bars when
+#'   `ci_style = "cross"`, in axis units (axes range from 0 to 1, so `0.05`
+#'   gives caps 5\% of the axis wide). For the horizontal bar (interval of
+#'   \eqn{M}), it sets the cap height. Use `0` for bars without caps.
 #' @param ci_alpha Transparency of the confidence bands when `ci_style = "bands"`,
 #'   between 0 (invisible) and 1 (opaque).
 #' @param ci_names Named character vector giving, for `M`, `FST`, `GpST` and
@@ -41,8 +47,8 @@
 ggbounds_raw <- function(M, FST, GpST = NULL, D = NULL, K = 2, show_colorbar = FALSE,
                          density_colors = TRUE, relative_density = TRUE, density_limits = NULL,
                          point_color = "grey30", ci = NULL, mean_style = c("crosshair", "bound"),
-                         ci_style = c("bands", "cross"), ci_color = "black", ci_linewidth = 1.5,
-                         ci_alpha = 0.15,
+                         mean_linetype = "solid", ci_style = c("bands", "cross"),
+                         ci_color = "black", ci_linewidth = 1.5, ci_cap = 0.05, ci_alpha = 0.15,
                          ci_names = c(M = "M", FST = "FST", GpST = "G'ST", D = "D")) {
   ci_style <- match.arg(ci_style)
   mean_style <- match.arg(mean_style)
@@ -61,10 +67,10 @@ ggbounds_raw <- function(M, FST, GpST = NULL, D = NULL, K = 2, show_colorbar = F
 
   # per-locus points: coloured by density, or in a single colour
   point_layers <- function() {
-    if (!density_colors) return(list(geom_point(size = 1.2, col = point_color)))
+    if (!density_colors) return(list(geom_point(size = 1.4, col = point_color)))
     colour_aes <- if (relative_density) aes(color = after_stat(density / max(density)))
                   else aes(color = after_stat(density))
-    list(ggpointdensity::geom_pointdensity(colour_aes, size = 1.2),
+    list(ggpointdensity::geom_pointdensity(colour_aes, size = 1.4),
          labs(color = if (relative_density) "relative\ndensity" else "density"),
          scale_color_viridis_c(limits = density_limits, oob = scales::squish))
   }
@@ -78,7 +84,7 @@ ggbounds_raw <- function(M, FST, GpST = NULL, D = NULL, K = 2, show_colorbar = F
                     col = "red", linewidth = 0.4, linetype = "dashed"))
     } else {
       list(annotate("segment", x = mean_M, xend = mean_M, y = 0, yend = bound_fun(K, mean_M),
-                    col = "red", linewidth = 0.8))
+                    col = "red", linewidth = 0.6, linetype = mean_linetype))
     }
   }
 
@@ -100,11 +106,11 @@ ggbounds_raw <- function(M, FST, GpST = NULL, D = NULL, K = 2, show_colorbar = F
     mid_y <- (s$value_lower + s$value_upper) / 2
     bars <- list(geom_errorbar(data = data.frame(x = mid_x, ymin = s$value_lower, ymax = s$value_upper),
                                aes(x = x, ymin = ymin, ymax = ymax), inherit.aes = FALSE,
-                               width = 0.02, linewidth = ci_linewidth, col = ci_color))
+                               width = ci_cap, linewidth = ci_linewidth, col = ci_color))
     if (m$value_upper > m$value_lower)                      # horizontal bar only if M has an interval
       bars <- c(bars, list(geom_errorbar(data = data.frame(y = mid_y, xmin = m$value_lower, xmax = m$value_upper),
                                          aes(y = y, xmin = xmin, xmax = xmax), inherit.aes = FALSE,
-                                         width = 0.02, linewidth = ci_linewidth, col = ci_color,
+                                         width = ci_cap/3, linewidth = ci_linewidth, col = ci_color,
                                          orientation = "y")))
     bars
   }
@@ -130,9 +136,9 @@ ggbounds_raw <- function(M, FST, GpST = NULL, D = NULL, K = 2, show_colorbar = F
   }
 
   # ---- plots ------------------------------------------------------
-  plotFST  <- make_plot(FST, "FST", Fup, expression(italic(F[ST])))
-  plotGpST <- if (!is.null(GpST)) make_plot(GpST, "GpST", Gpup, expression(italic(G*minute[ST]))) else NULL
-  plotD    <- if (!is.null(D))    make_plot(D, "D", Dup, expression(italic(D))) else NULL
+  plotFST  <- make_plot(FST, "FST", Fup, expression(bolditalic(F[ST])))
+  plotGpST <- if (!is.null(GpST)) make_plot(GpST, "GpST", Gpup, expression(bolditalic(G*minute[ST]))) else NULL
+  plotD    <- if (!is.null(D))    make_plot(D, "D", Dup, expression(bolditalic(D))) else NULL
 
   list(plotFST, plotGpST, plotD)
 }

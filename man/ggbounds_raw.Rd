@@ -17,9 +17,11 @@ ggbounds_raw(
   point_color = "grey30",
   ci = NULL,
   mean_style = c("crosshair", "bound"),
+  mean_linetype = "solid",
   ci_style = c("bands", "cross"),
   ci_color = "black",
   ci_linewidth = 1.5,
+  ci_cap = 0.05,
   ci_alpha = 0.15,
   ci_names = c(M = "M", FST = "FST", GpST = "G'ST", D = "D")
 )
@@ -56,12 +58,20 @@ can be added to several plots.}
 lines through the mean, across the whole plot) or \code{"bound"} (solid red
 segment from 0 to the upper bound at the mean of \eqn{M}).}
 
+\item{mean_linetype}{Line type of the red segment when \code{mean_style = "bound"},
+e.g. \code{"solid"} (default), \code{"dashed"} or \code{"dotted"}.}
+
 \item{ci_style}{How to draw the intervals: \code{"bands"} (shaded bands across
 the plot) or \code{"cross"} (crossed error bars centred on the intervals).}
 
 \item{ci_color}{Colour of the error bars when \code{ci_style = "cross"}.}
 
-\item{ci_linewidth}{Line width of the error bars when \code{ci_style = "cross"}}
+\item{ci_linewidth}{Line width of the error bars when \code{ci_style = "cross"}.}
+
+\item{ci_cap}{Width of the caps at the ends of the error bars when
+\code{ci_style = "cross"}, in axis units (axes range from 0 to 1, so \code{0.05}
+gives caps 5\\% of the axis wide). For the horizontal bar (interval of
+\eqn{M}), it sets the cap height. Use \code{0} for bars without caps.}
 
 \item{ci_alpha}{Transparency of the confidence bands when \code{ci_style = "bands"},
 between 0 (invisible) and 1 (opaque).}
