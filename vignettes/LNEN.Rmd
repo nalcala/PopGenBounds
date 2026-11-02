@@ -96,7 +96,7 @@ PANEC1_freq_plot
 
 ## Format data
 
-Now we need to format the data to be compatible with the input of Diff() function computing differentiation statistics.
+Now we need to format the data to be compatible with the input of Diff() function computing differentiation statistics (allele frequency matrix with alleles in columns and populations in rows).
 ```{r format input}
 LCNEC10_subpop_names <- sub(".*\\.", "", colnames(LCNEC10)[3:4])
 PANEC1_subpop_names <- sub(".*\\.", "", colnames(PANEC1)[3:5])
