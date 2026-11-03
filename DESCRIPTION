@@ -15,6 +15,7 @@ Imports:
     dplyr,
     ggplot2,
     ggpointdensity,
+    rlang,
     tidyverse,
     magrittr, 
     tibble,
@@ -26,6 +27,7 @@ Suggests:
     knitr,
     rmarkdown
 Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
 VignetteBuilder: knitr
 Depends: 
     R (>= 3.5)

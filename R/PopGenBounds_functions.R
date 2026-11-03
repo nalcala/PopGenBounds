@@ -21,7 +21,7 @@ Diff = function(freqs){
   FST = if (HT < 1e-12) 0 else (1-HS/HT)  # no variation (M = 1): no differentiation
   GpST= FST*(K-1+HS)/(K-1)/(1-HS)
   D = K/(K-1)*(HT-HS)/(1-HS)
-  #warning()
+
   stats = tibble::tibble(statistic=c("FST","G'ST","D"), value = c(FST,GpST,D) )
 
   # compute bounds
@@ -186,13 +186,15 @@ ggbounds = function(M,FST,GpST=NULL,D=NULL,K=2){
 #'   rep(0,4*4),0.3,0.3,0.3,0.1,rep(0,4),
 #'   rep(0,4*5),0.3,0.3,0.3,0.1),ncol=24,byrow = TRUE)
 #' ggfreqtable(popa)
+#'
+#' @importFrom rlang .data
 ggfreqtable = function(freqs){
   freqs.tmp = freqs
   if(is.null(colnames(freqs)) ) colnames(freqs.tmp) = paste0(1:ncol(freqs.tmp))
   if(is.null(rownames(freqs)) ) rownames(freqs.tmp) = paste0(1:nrow(freqs.tmp))
 
-  freqs.long = dplyr::bind_cols(Subpopulation=rownames(freqs.tmp),dplyr::as_tibble(freqs.tmp)) %>%
-    tidyr::pivot_longer(-Subpopulation,names_to = "Allele",values_to = "Frequency")
+  freqs.long = dplyr::bind_cols("Subpopulation"=rownames(freqs.tmp),dplyr::as_tibble(freqs.tmp)) %>%
+    tidyr::pivot_longer(-"Subpopulation",names_to = "Allele",values_to = "Frequency")
 
   freqs.long$Allele = factor(freqs.long$Allele,levels=unique(freqs.long$Allele))
   freqs.long$Subpopulation = factor(freqs.long$Subpopulation,levels=rev(unique(freqs.long$Subpopulation)) )

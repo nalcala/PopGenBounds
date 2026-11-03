@@ -23,4 +23,5 @@ popa = matrix(c(0.3,0.3,0.3,0.1,rep(0,4*5),
   rep(0,4*4),0.3,0.3,0.3,0.1,rep(0,4),
   rep(0,4*5),0.3,0.3,0.3,0.1),ncol=24,byrow = TRUE)
 ggfreqtable(popa)
+
 }
