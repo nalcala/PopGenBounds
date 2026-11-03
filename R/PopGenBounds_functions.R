@@ -17,7 +17,8 @@ Diff = function(freqs){
   M = max(colMeans(freqs))
   HS = mean(1-rowSums(freqs**2))
   HT = 1-sum(colMeans(freqs)**2)
-  FST = 1-HS/HT
+  #FST = 1-HS/HT
+  FST = if (HT < 1e-12) 0 else (1-HS/HT)  # no variation (M = 1): no differentiation
   GpST= FST*(K-1+HS)/(K-1)/(1-HS)
   D = K/(K-1)*(HT-HS)/(1-HS)
 
@@ -105,10 +106,10 @@ Gpup = function(K,M){
 #' freqs_locus2 <- matrix(c(1,0.8,0,0.2),nrow=2)
 #' freqs_locus3 <- matrix(c(1,0.2,0,0.8),nrow=2)
 #' data  <- rbind(Diff(freqs_locus1),Diff(freqs_locus2),Diff(freqs_locus2))
-#' ggbounds(M=data %>% filter(statistic=="M") %>% pull(value),FST=data %>%
-#' filter(statistic=="FST") %>% pull(value))
+#' ggbounds(M=data %>% filter(statistic=="M") %>% pull(value),
+#'          FST=data %>% filter(statistic=="FST") %>% pull(value))
 ggbounds = function(M,FST,GpST=NULL,D=NULL,K=2){
-  nudge = (mean(M)<0.5)*0.16-(mean(M)>=0.5)*0.25
+  nudge = (mean(M,na.rm=T)<0.5)*0.16-(mean(M,na.rm=T)>=0.5)*0.25
   MFtmp = dplyr::tibble(M= seq(0.001,1-0.001,0.001),
                         FST= Fup(K,seq(0.001,1-0.001,0.001)) )
   MGptmp = dplyr::tibble(M= seq(0.001,1-0.001,0.001),
@@ -117,14 +118,14 @@ ggbounds = function(M,FST,GpST=NULL,D=NULL,K=2){
                         D= Dup(K,seq(0.001,1-0.001,0.001)) )
   plotFST <- ggplot2::ggplot(dplyr::tibble(M=M,FST=FST),ggplot2::aes(x=M,y=FST)) + ggpointdensity::geom_pointdensity() +
     ggplot2::geom_line(data=MFtmp,ggplot2::aes(x=M,y=FST)) + ggplot2::xlab(expression(italic(M))) +
-    ggplot2::geom_point(data=dplyr::tibble(M=mean(M),FST=mean(FST)),col="red",
+    ggplot2::geom_point(data=dplyr::tibble(M=mean(M,na.rm=T),FST=mean(FST,na.rm=T)),col="red",
                pch=16,size=3,stroke=2) +
-    ggplot2::geom_segment(data=dplyr::tibble(M=mean(M),FST=mean(FST)),
+    ggplot2::geom_segment(data=dplyr::tibble(M=mean(M,na.rm=T),FST=mean(FST,na.rm=T)),
                           ggplot2::aes(x=M,xend=M,y=0,yend=Fup(K,M)), col="red",size=1 ) +
-    ggplot2::geom_label(data=dplyr::tibble(M=mean(M),FST=mean(FST)),
+    ggplot2::geom_label(data=dplyr::tibble(M=mean(M,na.rm=T),FST=mean(FST,na.rm=T)),
                         ggplot2::aes(x=M,y=FST,
-                   label= paste0("mean FST=", format(FST,digits=2)," (",
-                                 format(mean(FST)/Fup(K,mean(M))*100,digits=2),"% of range)" )),
+                   label= paste0("mean norm FST=", format(FST,digits=2)," (",
+                                 format(mean(FST,na.rm=T)/Fup(K,mean(M,na.rm=T))*100,digits=2),"% of range)" )),
                nudge_x = nudge,nudge_y=0.07,col="red") +
     ggplot2::ylab(expression(italic(F[ST]))) +
     ggplot2::coord_cartesian(xlim=c(0,1),ylim=c(0,1),expand = F) +
@@ -133,14 +134,14 @@ ggbounds = function(M,FST,GpST=NULL,D=NULL,K=2){
   if(!is.null(GpST)){
     plotGpST <- ggplot2::ggplot(dplyr::tibble(M=M,GpST=GpST),ggplot2::aes(x=M,y=GpST)) + ggpointdensity::geom_pointdensity() +
       ggplot2::geom_line(data=MGptmp,ggplot2::aes(x=M,y=GpST)) + ggplot2::xlab(expression(italic(M))) +
-    ggplot2::geom_point(data=dplyr::tibble(M=mean(M),GpST=mean(GpST)),col="red",
+    ggplot2::geom_point(data=dplyr::tibble(M=mean(M, na.rm=T),GpST=mean(GpST,na.rm=T)),col="red",
                         pch=16,size=3,stroke=2) +
-    ggplot2::geom_segment(data=dplyr::tibble(M=mean(M),GpST=mean(GpST)),
+    ggplot2::geom_segment(data=dplyr::tibble(M=mean(M,na.rm=T),GpST=mean(GpST,na.rm=T)),
                           ggplot2::aes(x=M,xend=M,y=0,yend=Gpup(K,M)), col="red",size=1 ) +
-    ggplot2::geom_label(data=dplyr::tibble(M=mean(M),GpST=mean(GpST)),
+    ggplot2::geom_label(data=dplyr::tibble(M=mean(M,na.rm=T),GpST=mean(GpST,na.rm=T)),
                         ggplot2::aes(x=M,y=GpST,
                                      label= paste0("mean GpST=", format(GpST,digits=2)," (",
-                                                   format(mean(GpST)/Gpup(K,mean(M))*100,digits=2),"% of range)" )),
+                                                   format(mean(GpST,na.rm=T)/Gpup(K,mean(M,na.rm=T))*100,digits=2),"% of range)" )),
                         nudge_x = nudge,nudge_y=0.07,col="red") +
     ggplot2::ylab(expression(italic(G[ST]))) +
     ggplot2::coord_cartesian(xlim=c(0,1),ylim=c(0,1),expand = F) +
@@ -150,14 +151,14 @@ ggbounds = function(M,FST,GpST=NULL,D=NULL,K=2){
   if(!is.null(D)){
   plotD <- ggplot2::ggplot(dplyr::tibble(M=M,D=D),ggplot2::aes(x=M,y=D)) + ggpointdensity::geom_pointdensity() +
     ggplot2::geom_line(data=MDtmp,ggplot2::aes(x=M,y=D)) + ggplot2::xlab(expression(italic(M))) +
-    ggplot2::geom_point(data=dplyr::tibble(M=mean(M),D=mean(D)),col="red",
+    ggplot2::geom_point(data=dplyr::tibble(M=mean(M,na.rm=T),D=mean(D,na.rm=T)),col="red",
                         pch=16,size=3,stroke=2) +
-    ggplot2::geom_segment(data=dplyr::tibble(M=mean(M),D=mean(D)),
+    ggplot2::geom_segment(data=dplyr::tibble(M=mean(M,na.rm=T),D=mean(D,na.rm=T)),
                           ggplot2::aes(x=M,xend=M,y=0,yend=Dup(K,M)), col="red",size=1 ) +
-    ggplot2::geom_label(data=dplyr::tibble(M=mean(M),D=mean(D)),
+    ggplot2::geom_label(data=dplyr::tibble(M=mean(M,na.rm=T),D=mean(D,na.rm=T)),
                         ggplot2::aes(x=M,y=D,
                                      label= paste0("mean D=", format(D,digits=2)," (",
-                                                   format(mean(D)/Dup(K,mean(M))*100,digits=2),"% of range)" )),
+                                                   format(mean(D,na.rm=T)/Dup(K,mean(M,na.rm=T))*100,digits=2),"% of range)" )),
                         nudge_x = nudge,nudge_y=0.07,col="red") +
     ggplot2::ylab(expression(italic(D))) +
     ggplot2::coord_cartesian(xlim=c(0,1),ylim=c(0,1),expand = F) +
@@ -200,8 +201,8 @@ ggfreqtable = function(freqs){
 
   freqs.long$Frequency = as.numeric(format(freqs.long$Frequency,digits=2))
 
-ggres = ggplot2::ggplot(freqs.long,ggplot2::aes(x=.data$Allele,y=.data$Subpopulation,fill=.data$Frequency)) + ggplot2::geom_tile(color="black",size=0.25) +
-  ggplot2::geom_text(ggplot2::aes(label=.data$Frequency))+
+ggres = ggplot2::ggplot(freqs.long,ggplot2::aes(x=Allele,y=Subpopulation,fill=Frequency)) + ggplot2::geom_tile(color="black",size=0.25) +
+  ggplot2::geom_text(ggplot2::aes(label=Frequency))+
   ggplot2::theme_bw() +
   ggplot2::scale_fill_gradientn(limits=c(0,1),colors=c("white","darkorange","darkmagenta"))+
   ggplot2::theme(
